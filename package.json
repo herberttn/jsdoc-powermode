@@ -1,0 +1,26 @@
+{
+  "name": "jsdoc-powermode",
+  "version": "0.1.0",
+  "description": "To make customization easy again",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/herberttn/jsdoc-powermode.git"
+  },
+  "keywords": [
+    "jsdoc"
+  ],
+  "author": "herberttn",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/herberttn/jsdoc-powermode/issues"
+  },
+  "homepage": "https://github.com/herberttn/jsdoc-powermode#readme",
+  "dependencies": {
+    "jsdoc": "^3.4.3",
+    "lodash": "^4.17.4"
+  }
+}
