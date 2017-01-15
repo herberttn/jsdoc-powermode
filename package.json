@@ -1,7 +1,7 @@
 {
   "name": "jsdoc-powermode",
   "version": "0.1.0",
-  "description": "To make customization easy again",
+  "description": "Make customization great again",
   "main": "index.js",
   "scripts": {
     "test": "test"
