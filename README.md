@@ -1,2 +1,2 @@
 # jsdoc-powermode
-> To make customization easy again
+> Make customization great again
