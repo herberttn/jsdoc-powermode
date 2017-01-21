@@ -10,9 +10,7 @@
     "type": "git",
     "url": "git+https://github.com/herberttn/jsdoc-powermode.git"
   },
-  "keywords": [
-    "jsdoc"
-  ],
+  "keywords": ["jsdoc", "powermode", "template", "plugin"],
   "author": "herberttn",
   "license": "Apache-2.0",
   "bugs": {
@@ -20,7 +18,11 @@
   },
   "homepage": "https://github.com/herberttn/jsdoc-powermode#readme",
   "dependencies": {
-    "jsdoc": "^3.4.3",
-    "lodash": "^4.17.4"
+    "jsdoc": "latest",
+    "lodash": "latest"
+  },
+  "devDependencies": {
+    "browser-sync": "latest",
+    "watch-run": "latest"
   }
 }
