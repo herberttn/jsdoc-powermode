@@ -13,6 +13,7 @@ const util = require('util');
 let data;
 let view;
 let outdir = path.normalize(env.opts.destination);
+let configurator;
 
 function find(spec) {
   return templateHelper.find(data, spec);
@@ -278,7 +279,6 @@ function buildMemberNav(items, itemHeading, itemsSeen, linktoFn) {
     items.forEach(function (item) {
       let methods = find({kind: 'function', memberof: item.longname});
       let members = find({kind: 'member', memberof: item.longname});
-      let docdash = env && env.conf && env.conf.docdash || {};
 
       if (!item.hasOwnProperty('longname')) {
         itemsNav += '<li>' + linktoFn('', item.name);
@@ -286,7 +286,7 @@ function buildMemberNav(items, itemHeading, itemsSeen, linktoFn) {
       } else if (!itemsSeen.hasOwnProperty(item.longname)) {
         itemsNav += '<li>' + linktoFn(item.longname, item.name.replace(/^module:/, ''));
 
-        if (docdash.static && members.find(m => m.scope === 'static')) {
+        if (configurator.shouldDisplayStaticMembers() && members.find(m => m.scope === 'static')) {
           itemsNav += "<ul class='members'>";
 
           members.forEach(member => {
@@ -387,8 +387,9 @@ function buildNav(members) {
  @param {Tutorial} tutorials
  */
 exports.publish = (taffyData, opts, tutorials) => {
-  let docdash = env && env.conf && env.conf.docdash || {};
+
   data = taffyData;
+  configurator = powerConfigurator().parse(env && env.conf && env.conf.powermode);
 
   let conf = env.conf.templates || {};
   conf.default = conf.default || {};
@@ -413,7 +414,7 @@ exports.publish = (taffyData, opts, tutorials) => {
   templateHelper.setTutorials(tutorials);
   data = templateHelper.prune(data);
 
-  docdash.sort !== false && data.sort('longname, version, since');
+  configurator.shouldSort() && data.sort('longname, version, since');
   templateHelper.addEventListeners(data);
 
   let sourceFiles = {};
@@ -651,3 +652,30 @@ exports.publish = (taffyData, opts, tutorials) => {
 
   saveChildren(tutorials);
 };
+
+function powerConfigurator() {
+
+  return {
+    parse
+  };
+
+  function parse(object) {
+    let config = object || {};
+
+    const defaults = {
+      displayStaticMembers: false,
+      sort: true
+    };
+
+    const notReallyAParser = {
+      shouldDisplayStaticMembers: () => trueOrNotWithDefault(config.displayStaticMembers, defaults.displayStaticMembers),
+      shouldSort                : () => trueOrNotWithDefault(config.sort, defaults.sort)
+    };
+
+    return notReallyAParser;
+
+    function trueOrNotWithDefault(value, defaultValue) {
+      return (value === true || value === false) ? value : defaultValue;
+    }
+  }
+}
