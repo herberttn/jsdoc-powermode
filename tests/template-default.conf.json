@@ -9,7 +9,6 @@
     ]
   },
   "plugins": [
-    "plugins/markdown"
   ],
   "opts": {
     "encoding": "utf8",
@@ -30,8 +29,8 @@
       "includeDate": false
     }
   },
-  "docdash": {
-    "static": false,
+  "powerMode": {
+    "displayStaticMembers": false,
     "sort": true
   }
 }

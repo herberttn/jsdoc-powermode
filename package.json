@@ -6,7 +6,7 @@
   "scripts": {
     "sync": "browser-sync start -s ./tests/generated-files -f ./tests/generated-files --reload-delay 1000 --no-ui --no-notify",
     "test": "jsdoc -c ./tests/template-default.conf.json",
-    "watch": "watch-run -d 1000 -p \"./templates/**,./tests/**.!(generated-files)\" \"npm run test\""
+    "watch": "watch-run -d 1000 -p \"./helpers/**,./plugins/**,./templates/**,./tests/**.!(generated-files)\" \"npm run test\""
   },
   "repository": {
     "type": "git",

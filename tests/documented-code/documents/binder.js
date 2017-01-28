@@ -30,7 +30,7 @@ var dataBinderOptions = exports.dataBinderOptions = {
 /**
  * You can unbind previously bound objects from here.
  *
- * @param {string} path The path that was bound using {@link module:documents/binder.bind}
+ * @param {string} path The jsdocPath that was bound using {@link module:documents/binder.bind}
  * @param {*} record The object that was bound
  */
 exports.unbind = function ( path, record ) {
@@ -63,8 +63,8 @@ exports.unbind = function ( path, record ) {
 
 /**
  * Bind to a property somewhere in an object. The property is found using dot notation and can be arbitrarily deep.
- * @param {string} path The path into the object to locate the property. For instance this could be `"_id"`, `"name.last"`.
- * or `"some.really.really.long.path.including.an.array.2.name"`
+ * @param {string} path The jsdocPath into the object to locate the property. For instance this could be `"_id"`, `"name.last"`.
+ * or `"some.really.really.long.jsdocPath.including.an.array.2.name"`
  * @param {object} record Anything you can hang a property off of
  * @param {options} options What you wanna do with the doohicky when yoyu bind it.
  * @param {function(*):Promise|*=} options.getter This is the method to run when getting the value. When it runs, you will receive

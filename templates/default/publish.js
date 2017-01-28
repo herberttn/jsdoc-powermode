@@ -1,196 +1,24 @@
 /* global env: true */
 'use strict';
 
-const doop = require('jsdoc/util/doop');
-const fs = require('jsdoc/fs');
-const templateHelper = require('jsdoc/util/templateHelper');
-const logger = require('jsdoc/util/logger');
-const path = require('jsdoc/path');
+const powerConfiguratorHelper = require('../../helpers/power-configurator.helper').loadFromEnv();
+const powerTemplateHelper = require('../../helpers/power-template.helper');
+
+const jsdocDoop = require('jsdoc/util/doop');
+const jsdocFS = require('jsdoc/fs');
+const jsdocTemplateHelper = require('jsdoc/util/templateHelper');
+const jsdocLogger = require('jsdoc/util/logger');
+const jsdocPath = require('jsdoc/path');
+const jsdocTemplate = require('jsdoc/template');
 const taffy = require('taffydb').taffy;
-const template = require('jsdoc/template');
 const util = require('util');
 
 let data;
 let view;
-let outdir = path.normalize(env.opts.destination);
-let configurator;
+let outdir = jsdocPath.normalize(env.opts.destination);
 
 function find(spec) {
-  return templateHelper.find(data, spec);
-}
-
-function tutoriallink(tutorial) {
-  return templateHelper.toTutorial(tutorial, null, {
-    tag: 'em',
-    classname: 'disabled',
-    prefix: 'Tutorial: '
-  });
-}
-
-function getAncestorLinks(doclet) {
-  return templateHelper.getAncestorLinks(data, doclet);
-}
-
-function hashToLink(doclet, hash) {
-  if (!/^(#.+)/.test(hash)) {
-    return hash;
-  }
-
-  let url = templateHelper.createLink(doclet);
-  url = url.replace(/(#.+|$)/, hash);
-  return '<a href="' + url + '">' + hash + '</a>';
-}
-
-function needsSignature(doclet) {
-  let needsSig = false;
-
-  // function and class definitions always get a signature
-  if (doclet.kind === 'function' || doclet.kind === 'class') {
-    needsSig = true;
-  }
-  // typedefs that contain functions get a signature, too
-  else if (doclet.kind === 'typedef' && doclet.type && doclet.type.names && doclet.type.names.length) {
-    for (let i = 0, l = doclet.type.names.length; i < l; i++) {
-      if (doclet.type.names[i].toLowerCase() === 'function') {
-        needsSig = true;
-        break;
-      }
-    }
-  }
-
-  return needsSig;
-}
-
-function getSignatureAttributes(item) {
-  let attributes = [];
-
-  if (item.optional) {
-    attributes.push('opt');
-  }
-
-  if (item.nullable === true) {
-    attributes.push('nullable');
-  } else if (item.nullable === false) {
-    attributes.push('non-null');
-  }
-
-  return attributes;
-}
-
-function updateItemName(item) {
-  let attributes = getSignatureAttributes(item);
-  let itemName = item.name || '';
-
-  if (item.variable) {
-    itemName = '&hellip;' + itemName;
-  }
-
-  if (attributes && attributes.length) {
-    itemName = util.format('%s<span class="signature-attributes">%s</span>', itemName, attributes.join(', '));
-  }
-
-  return itemName;
-}
-
-function addParamAttributes(params) {
-  return params
-    .filter(param => param.name && param.name.indexOf('.') === -1)
-    .map(updateItemName);
-}
-
-function buildItemTypeStrings(item) {
-  let types = [];
-
-  if (item && item.type && item.type.names) {
-    item.type.names.forEach(name => types.push(templateHelper.linkto(name, templateHelper.htmlsafe(name))));
-  }
-  return types;
-}
-
-function buildAttribsString(attribs) {
-  let attribsString = '';
-
-  if (attribs && attribs.length) {
-    attribsString = templateHelper.htmlsafe(util.format('(%s) ', attribs.join(', ')));
-  }
-  return attribsString;
-}
-
-function addNonParamAttributes(items) {
-  let types = [];
-
-  if (items && items.length) {
-    items.forEach(item => types = types.concat(buildItemTypeStrings(item)));
-  }
-  return types;
-}
-
-function addSignatureParams(f) {
-  let params = f.params ? addParamAttributes(f.params) : [];
-  f.signature = util.format('%s(%s)', (f.signature || ''), params.join(', '));
-}
-
-function addSignatureReturns(f) {
-  let attribs = [];
-  let attribsString = '';
-  let returnTypes = [];
-  let returnTypesString = '';
-
-  // jam all the return-type attributes into an array. this could create odd results (for example,
-  // if there are both nullable and non-nullable return types), but let's assume that most people
-  // who use multiple @return tags aren't using Closure Compiler type annotations, and vice-versa.
-  if (f.returns) {
-    f.returns.forEach(item => {
-      templateHelper.getAttribs(item).forEach(attrib => {
-        if (attribs.indexOf(attrib) === -1) {
-          attribs.push(attrib);
-        }
-      });
-    });
-    attribsString = buildAttribsString(attribs);
-  }
-
-  if (f.returns) {
-    returnTypes = addNonParamAttributes(f.returns);
-  }
-
-  if (returnTypes.length) {
-    returnTypesString = util.format(' &rarr; %s{%s}', attribsString, returnTypes.join('|'));
-  }
-
-  f.signature =
-    '<span class="signature">' + (f.signature || '') + '</span>' +
-    '<span class="type-signature">' + returnTypesString + '</span>';
-}
-
-function addSignatureTypes(f) {
-  let types = f.type ? buildItemTypeStrings(f) : [];
-
-  f.signature = (f.signature || '') +
-    '<span class="type-signature">' + (types.length ? ' :' + types.join('|') : '') + '</span>';
-}
-
-function addAttribs(f) {
-  let attribs = templateHelper.getAttribs(f);
-  let attribsString = buildAttribsString(attribs);
-  f.attribs = util.format('<span class="type-signature">%s</span>', attribsString);
-}
-
-function shortenPaths(files, commonPrefix) {
-  Object.keys(files).forEach(file => {
-    files[file].shortened = files[file].resolved.replace(commonPrefix, '').replace(/\\/g, '/'); // always use forward slashes
-  });
-  return files;
-}
-
-function getPathFromDoclet(doclet) {
-  if (!doclet.meta) {
-    return null;
-  }
-
-  return doclet.meta.path && doclet.meta.path !== 'null'
-    ? path.join(doclet.meta.path, doclet.meta.filename)
-    : doclet.meta.filename;
+  return jsdocTemplateHelper.find(data, spec);
 }
 
 function generate(type, title, docs, filename, resolveLinks) {
@@ -202,13 +30,13 @@ function generate(type, title, docs, filename, resolveLinks) {
     docs: docs
   };
 
-  let outpath = path.join(outdir, filename);
+  let outpath = jsdocPath.join(outdir, filename);
   let html = view.render('container.tmpl', docData);
 
   if (resolveLinks) {
-    html = templateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
+    html = jsdocTemplateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
   }
-  fs.writeFileSync(outpath, html, 'utf8');
+  jsdocFS.writeFileSync(outpath, html, 'utf8');
 }
 
 function generateSourceFiles(sourceFiles, encoding) {
@@ -217,17 +45,17 @@ function generateSourceFiles(sourceFiles, encoding) {
   Object.keys(sourceFiles).forEach(file => {
     let source;
 
-    // links are keyed to the shortened path in each doclet's `meta.shortpath` property
-    let sourceOutfile = templateHelper.getUniqueFilename(sourceFiles[file].shortened);
-    templateHelper.registerLink(sourceFiles[file].shortened, sourceOutfile);
+    // links are keyed to the shortened jsdocPath in each doclet's `meta.shortpath` property
+    let sourceOutfile = jsdocTemplateHelper.getUniqueFilename(sourceFiles[file].shortened);
+    jsdocTemplateHelper.registerLink(sourceFiles[file].shortened, sourceOutfile);
 
     try {
       source = {
         kind: 'source',
-        code: templateHelper.htmlsafe(fs.readFileSync(sourceFiles[file].resolved, encoding))
+        code: jsdocTemplateHelper.htmlsafe(jsdocFS.readFileSync(sourceFiles[file].resolved, encoding))
       };
     } catch (e) {
-      logger.error('Error while generating source file %s: %s', file, e.message);
+      jsdocLogger.error('Error while generating source file %s: %s', file, e.message);
     }
 
     generate('Source', sourceFiles[file].shortened, [source], sourceOutfile, false);
@@ -260,7 +88,7 @@ function attachModuleSymbols(doclets, modules) {
       module.modules = symbols[module.longname]
         .filter(symbol => symbol.description || symbol.kind === 'class')
         .map(symbol => {
-          symbol = doop(symbol);
+          symbol = jsdocDoop(symbol);
           if (symbol.kind === 'class' || symbol.kind === 'function') {
             symbol.name = symbol.name.replace('module:', '(require("') + '"))';
           }
@@ -286,13 +114,13 @@ function buildMemberNav(items, itemHeading, itemsSeen, linktoFn) {
       } else if (!itemsSeen.hasOwnProperty(item.longname)) {
         itemsNav += '<li>' + linktoFn(item.longname, item.name.replace(/^module:/, ''));
 
-        if (configurator.shouldDisplayStaticMembers() && members.find(m => m.scope === 'static')) {
+        if (powerConfiguratorHelper.shouldDisplayStaticMembers() && members.find(m => m.scope === 'static')) {
           itemsNav += "<ul class='members'>";
 
           members.forEach(member => {
             if (!member.scope === 'static') return;
             itemsNav += "<li data-type='member'>";
-            itemsNav += templateHelper.linkto(member.longname, member.name);
+            itemsNav += powerTemplateHelper.linkto(member.longname, member.name);
             itemsNav += "</li>";
           });
 
@@ -304,7 +132,7 @@ function buildMemberNav(items, itemHeading, itemsSeen, linktoFn) {
 
           methods.forEach(method => {
             itemsNav += "<li data-type='method'>";
-            itemsNav += templateHelper.linkto(method.longname, method.name);
+            itemsNav += powerTemplateHelper.linkto(method.longname, method.name);
             itemsNav += "</li>";
           });
 
@@ -322,14 +150,6 @@ function buildMemberNav(items, itemHeading, itemsSeen, linktoFn) {
   }
 
   return nav;
-}
-
-function linktoTutorial(longName, name) {
-  return tutoriallink(name);
-}
-
-function linktoExternal(longName, name) {
-  return templateHelper.linkto(longName, name.replace(/(^"|"$)/g, ''));
 }
 
 /**
@@ -351,28 +171,28 @@ function buildNav(members) {
   let seen = {};
   let seenTutorials = {};
 
-  nav += buildMemberNav(members.classes, 'Classes', seen, templateHelper.linkto);
-  nav += buildMemberNav(members.modules, 'Modules', {}, templateHelper.linkto);
-  nav += buildMemberNav(members.externals, 'Externals', seen, linktoExternal);
-  nav += buildMemberNav(members.events, 'Events', seen, templateHelper.linkto);
-  nav += buildMemberNav(members.namespaces, 'Namespaces', seen, templateHelper.linkto);
-  nav += buildMemberNav(members.mixins, 'Mixins', seen, templateHelper.linkto);
-  nav += buildMemberNav(members.tutorials, 'Tutorials', seenTutorials, linktoTutorial);
-  nav += buildMemberNav(members.interfaces, 'Interfaces', seen, templateHelper.linkto);
+  nav += buildMemberNav(members.classes, 'Classes', seen, powerTemplateHelper.linkto);
+  nav += buildMemberNav(members.modules, 'Modules', {}, powerTemplateHelper.linkto);
+  nav += buildMemberNav(members.externals, 'Externals', seen, powerTemplateHelper.linktoExternal);
+  nav += buildMemberNav(members.events, 'Events', seen, powerTemplateHelper.linkto);
+  nav += buildMemberNav(members.namespaces, 'Namespaces', seen, powerTemplateHelper.linkto);
+  nav += buildMemberNav(members.mixins, 'Mixins', seen, powerTemplateHelper.linkto);
+  nav += buildMemberNav(members.tutorials, 'Tutorials', seenTutorials, powerTemplateHelper.linktoTutorial);
+  nav += buildMemberNav(members.interfaces, 'Interfaces', seen, powerTemplateHelper.linkto);
 
   if (members.globals.length) {
     let globalNav = '';
 
     members.globals.forEach(g => {
       if (g.kind !== 'typedef' && !seen.hasOwnProperty(g.longname)) {
-        globalNav += '<li>' + templateHelper.linkto(g.longname, g.name) + '</li>';
+        globalNav += '<li>' + powerTemplateHelper.linkto(g.longname, g.name) + '</li>';
       }
       seen[g.longname] = true;
     });
 
     if (!globalNav) {
       // turn the heading into a link so you can actually get to the global page
-      nav += '<h3>' + templateHelper.linkto('global', 'Global') + '</h3>';
+      nav += '<h3>' + powerTemplateHelper.linkto('global', 'Global') + '</h3>';
     } else {
       nav += '<h3>Global</h3><ul>' + globalNav + '</ul>';
     }
@@ -389,33 +209,32 @@ function buildNav(members) {
 exports.publish = (taffyData, opts, tutorials) => {
 
   data = taffyData;
-  configurator = powerConfigurator().parse(env && env.conf && env.conf.powermode);
 
   let conf = env.conf.templates || {};
   conf.default = conf.default || {};
 
-  let templatePath = path.normalize(opts.template);
-  view = new template.Template(path.join(templatePath, 'tmpl'));
+  let templatePath = jsdocPath.normalize(opts.template);
+  view = new jsdocTemplate.Template(jsdocPath.join(templatePath, 'tmpl'));
 
   // claim some special filenames in advance, so the All-Powerful Overseer of Filename Uniqueness
   // doesn't try to hand them out later
-  let indexUrl = templateHelper.getUniqueFilename('index');
+  let indexUrl = jsdocTemplateHelper.getUniqueFilename('index');
   // don't call registerLink() on this one! 'index' is also a valid longname
 
-  let globalUrl = templateHelper.getUniqueFilename('global');
-  templateHelper.registerLink('global', globalUrl);
+  let globalUrl = jsdocTemplateHelper.getUniqueFilename('global');
+  jsdocTemplateHelper.registerLink('global', globalUrl);
 
   // set up templating
   view.layout = conf.default.layoutFile
-    ? path.getResourcePath(path.dirname(conf.default.layoutFile), path.basename(conf.default.layoutFile))
+    ? jsdocPath.getResourcePath(jsdocPath.dirname(conf.default.layoutFile), jsdocPath.basename(conf.default.layoutFile))
     : 'layout.tmpl';
 
-  // set up tutorials for templateHelper
-  templateHelper.setTutorials(tutorials);
-  data = templateHelper.prune(data);
+  // set up tutorials for jsdocTemplateHelper
+  jsdocTemplateHelper.setTutorials(tutorials);
+  data = jsdocTemplateHelper.prune(data);
 
-  configurator.shouldSort() && data.sort('longname, version, since');
-  templateHelper.addEventListeners(data);
+  powerConfiguratorHelper.shouldSort() && data.sort('longname, version, since');
+  jsdocTemplateHelper.addEventListeners(data);
 
   let sourceFiles = {};
   let sourceFilePaths = [];
@@ -439,13 +258,13 @@ exports.publish = (taffyData, opts, tutorials) => {
     }
 
     if (doclet.see) {
-      doclet.see.forEach((seeItem, i) => doclet.see[i] = hashToLink(doclet, seeItem));
+      doclet.see.forEach((seeItem, i) => doclet.see[i] = powerTemplateHelper.hashToLink(doclet, seeItem));
     }
 
     // build a list of source files
     let sourcePath;
     if (doclet.meta) {
-      sourcePath = getPathFromDoclet(doclet);
+      sourcePath = powerTemplateHelper.getPathFromDoclet(doclet);
       sourceFiles[sourcePath] = {
         resolved: sourcePath,
         shortened: null
@@ -459,18 +278,18 @@ exports.publish = (taffyData, opts, tutorials) => {
   // update outdir if necessary, then create outdir
   let packageInfo = (find({kind: 'package'}) || [])[0];
   if (packageInfo && packageInfo.name) {
-    outdir = path.join(outdir, packageInfo.name, (packageInfo.version || ''));
+    outdir = jsdocPath.join(outdir, packageInfo.name, (packageInfo.version || ''));
   }
-  fs.mkPath(outdir);
+  jsdocFS.mkPath(outdir);
 
   // copy the template's static files to outdir
-  let fromDir = path.join(templatePath, 'static');
-  let staticFiles = fs.ls(fromDir, 3);
+  let fromDir = jsdocPath.join(templatePath, 'static');
+  let staticFiles = jsdocFS.ls(fromDir, 3);
 
   staticFiles.forEach(fileName => {
-    let toDir = fs.toDir(fileName.replace(fromDir, outdir));
-    fs.mkPath(toDir);
-    fs.copyFileSync(fileName, toDir);
+    let toDir = jsdocFS.toDir(fileName.replace(fromDir, outdir));
+    jsdocFS.mkPath(toDir);
+    jsdocFS.copyFileSync(fileName, toDir);
   });
 
   // copy user-specified static files to outdir
@@ -490,25 +309,25 @@ exports.publish = (taffyData, opts, tutorials) => {
       let extraStaticFiles = staticFileScanner.scan([filePath], 10, staticFileFilter);
 
       extraStaticFiles.forEach(fileName => {
-        let sourcePath = fs.toDir(filePath);
-        let toDir = fs.toDir(fileName.replace(sourcePath, outdir));
-        fs.mkPath(toDir);
-        fs.copyFileSync(fileName, toDir);
+        let sourcePath = jsdocFS.toDir(filePath);
+        let toDir = jsdocFS.toDir(fileName.replace(sourcePath, outdir));
+        jsdocFS.mkPath(toDir);
+        jsdocFS.copyFileSync(fileName, toDir);
       });
     });
   }
 
   if (sourceFilePaths.length) {
-    sourceFiles = shortenPaths(sourceFiles, path.commonPrefix(sourceFilePaths));
+    sourceFiles = powerTemplateHelper.shortenPaths(sourceFiles, jsdocPath.commonPrefix(sourceFilePaths));
   }
   data().each(doclet => {
-    let url = templateHelper.createLink(doclet);
-    templateHelper.registerLink(doclet.longname, url);
+    let url = jsdocTemplateHelper.createLink(doclet);
+    jsdocTemplateHelper.registerLink(doclet.longname, url);
 
-    // add a shortened version of the full path
+    // add a shortened version of the full jsdocPath
     let docletPath;
     if (doclet.meta) {
-      docletPath = getPathFromDoclet(doclet);
+      docletPath = powerTemplateHelper.getPathFromDoclet(doclet);
       docletPath = sourceFiles[docletPath].shortened;
       if (docletPath) {
         doclet.meta.shortpath = docletPath;
@@ -517,38 +336,38 @@ exports.publish = (taffyData, opts, tutorials) => {
   });
 
   data().each(doclet => {
-    let url = templateHelper.longnameToUrl[doclet.longname];
+    let url = jsdocTemplateHelper.longnameToUrl[doclet.longname];
 
     if (url.indexOf('#') > -1) {
-      doclet.id = templateHelper.longnameToUrl[doclet.longname].split(/#/).pop();
+      doclet.id = jsdocTemplateHelper.longnameToUrl[doclet.longname].split(/#/).pop();
     } else {
       doclet.id = doclet.name;
     }
 
-    if (needsSignature(doclet)) {
-      addSignatureParams(doclet);
-      addSignatureReturns(doclet);
-      addAttribs(doclet);
+    if (powerTemplateHelper.needsSignature(doclet)) {
+      powerTemplateHelper.addSignatureParams(doclet);
+      powerTemplateHelper.addSignatureReturns(doclet);
+      powerTemplateHelper.addAttribs(doclet);
     }
   });
 
   // do this after the urls have all been generated
   data().each(doclet => {
-    doclet.ancestors = getAncestorLinks(doclet);
+    doclet.ancestors = powerTemplateHelper.getAncestorLinks(data, doclet);
 
     if (doclet.kind === 'member') {
-      addSignatureTypes(doclet);
-      addAttribs(doclet);
+      powerTemplateHelper.addSignatureTypes(doclet);
+      powerTemplateHelper.addAttribs(doclet);
     }
 
     if (doclet.kind === 'constant') {
-      addSignatureTypes(doclet);
-      addAttribs(doclet);
+      powerTemplateHelper.addSignatureTypes(doclet);
+      powerTemplateHelper.addAttribs(doclet);
       doclet.kind = 'member';
     }
   });
 
-  let members = templateHelper.getMembers(data);
+  let members = jsdocTemplateHelper.getMembers(data);
   members.tutorials = tutorials.children;
 
   // output pretty-printed source files by default
@@ -556,10 +375,10 @@ exports.publish = (taffyData, opts, tutorials) => {
 
   // add template helpers
   view.find = find;
-  view.linkto = templateHelper.linkto;
-  view.resolveAuthorLinks = templateHelper.resolveAuthorLinks;
-  view.tutoriallink = tutoriallink;
-  view.htmlsafe = templateHelper.htmlsafe;
+  view.linkto = powerTemplateHelper.linkto;
+  view.resolveAuthorLinks = jsdocTemplateHelper.resolveAuthorLinks;
+  view.tutoriallink = powerTemplateHelper.tutoriallink;
+  view.htmlsafe = jsdocTemplateHelper.htmlsafe;
   view.outputSourceFiles = outputSourceFiles;
 
   // once for all
@@ -593,39 +412,39 @@ exports.publish = (taffyData, opts, tutorials) => {
   let externals = taffy(members.externals);
   let interfaces = taffy(members.interfaces);
 
-  Object.keys(templateHelper.longnameToUrl).forEach(longname => {
-    let myModules = templateHelper.find(modules, {longname: longname});
+  Object.keys(jsdocTemplateHelper.longnameToUrl).forEach(longname => {
+    let myModules = jsdocTemplateHelper.find(modules, {longname: longname});
     if (myModules.length) {
-      generate('Module', myModules[0].name, myModules, templateHelper.longnameToUrl[longname]);
+      generate('Module', myModules[0].name, myModules, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
-    let myClasses = templateHelper.find(classes, {longname: longname});
+    let myClasses = jsdocTemplateHelper.find(classes, {longname: longname});
     if (myClasses.length) {
-      generate('Class', myClasses[0].name, myClasses, templateHelper.longnameToUrl[longname]);
+      generate('Class', myClasses[0].name, myClasses, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
-    let myNamespaces = templateHelper.find(namespaces, {longname: longname});
+    let myNamespaces = jsdocTemplateHelper.find(namespaces, {longname: longname});
     if (myNamespaces.length) {
-      generate('Namespace', myNamespaces[0].name, myNamespaces, templateHelper.longnameToUrl[longname]);
+      generate('Namespace', myNamespaces[0].name, myNamespaces, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
-    let myMixins = templateHelper.find(mixins, {longname: longname});
+    let myMixins = jsdocTemplateHelper.find(mixins, {longname: longname});
     if (myMixins.length) {
-      generate('Mixin', myMixins[0].name, myMixins, templateHelper.longnameToUrl[longname]);
+      generate('Mixin', myMixins[0].name, myMixins, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
-    let myExternals = templateHelper.find(externals, {longname: longname});
+    let myExternals = jsdocTemplateHelper.find(externals, {longname: longname});
     if (myExternals.length) {
-      generate('External', myExternals[0].name, myExternals, templateHelper.longnameToUrl[longname]);
+      generate('External', myExternals[0].name, myExternals, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
-    let myInterfaces = templateHelper.find(interfaces, {longname: longname});
+    let myInterfaces = jsdocTemplateHelper.find(interfaces, {longname: longname});
     if (myInterfaces.length) {
-      generate('Interface', myInterfaces[0].name, myInterfaces, templateHelper.longnameToUrl[longname]);
+      generate('Interface', myInterfaces[0].name, myInterfaces, jsdocTemplateHelper.longnameToUrl[longname]);
     }
   });
 
-  // TODO: move the tutorial functions to templateHelper.js
+  // TODO: move the tutorial functions to jsdocTemplateHelper.js
   function generateTutorial(title, tutorial, filename) {
     let tutorialData = {
       title: title,
@@ -634,48 +453,21 @@ exports.publish = (taffyData, opts, tutorials) => {
       children: tutorial.children
     };
 
-    let tutorialPath = path.join(outdir, filename);
+    let tutorialPath = jsdocPath.join(outdir, filename);
     let html = view.render('tutorial.tmpl', tutorialData);
 
     // yes, you can use {@link} in tutorials too!
-    html = templateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
-    fs.writeFileSync(tutorialPath, html, 'utf8');
+    html = jsdocTemplateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
+    jsdocFS.writeFileSync(tutorialPath, html, 'utf8');
   }
 
   // tutorials can have only one parent so there is no risk for loops
   function saveChildren(node) {
     node.children.forEach(child => {
-      generateTutorial('Tutorial: ' + child.title, child, templateHelper.tutorialToUrl(child.name));
+      generateTutorial('Tutorial: ' + child.title, child, jsdocTemplateHelper.tutorialToUrl(child.name));
       saveChildren(child);
     });
   }
 
   saveChildren(tutorials);
 };
-
-function powerConfigurator() {
-
-  return {
-    parse
-  };
-
-  function parse(object) {
-    let config = object || {};
-
-    const defaults = {
-      displayStaticMembers: false,
-      sort: true
-    };
-
-    const notReallyAParser = {
-      shouldDisplayStaticMembers: () => trueOrNotWithDefault(config.displayStaticMembers, defaults.displayStaticMembers),
-      shouldSort                : () => trueOrNotWithDefault(config.sort, defaults.sort)
-    };
-
-    return notReallyAParser;
-
-    function trueOrNotWithDefault(value, defaultValue) {
-      return (value === true || value === false) ? value : defaultValue;
-    }
-  }
-}

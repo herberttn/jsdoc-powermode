@@ -10,7 +10,7 @@
 
 var sys = require( "lodash" );
 /**
- The list of operators that are nested within the expression object. These take the form <code>{path:{operator:operand}}</code>
+ The list of operators that are nested within the expression object. These take the form <code>{jsdocPath:{operator:operand}}</code>
  @private
  @type {array.<string>}
  **/
@@ -26,7 +26,7 @@ var prefixOps = ["$and", "$or", "$nor", "$not"];
 /**
  Processes a nested operator by picking the operator out of the expression object. Returns a formatted object that can be used for querying
  @private
- @param {string} path The path to element to work with
+ @param {string} path The jsdocPath to element to work with
  @param {object} operand The operands to use for the query
  @return {object} A formatted operation definition
  **/
@@ -154,9 +154,9 @@ function parseQueryExpression( obj ) {
 exports.delimiter = '.';
 
 /**
- Splits a path expression into its component parts
+ Splits a jsdocPath expression into its component parts
  @private
- @param {string} path The path to split
+ @param {string} path The jsdocPath to split
  @returns {array}
  **/
 
@@ -167,7 +167,7 @@ function splitPath( path ) {
 /**
  Reaches into an object and allows you to get at a value deeply nested in an object
  @private
- @param {array} path The split path of the element to work with
+ @param {array} path The split jsdocPath of the element to work with
  @param {object} record The record to reach into
  @return {*} Whatever was found in the record
  **/
@@ -189,9 +189,9 @@ function reachin( path, record ) {
 }
 
 /**
- This will write the value into a record at the path, creating intervening objects if they don't exist
+ This will write the value into a record at the jsdocPath, creating intervening objects if they don't exist
  @private
- @param {array} path The split path of the element to work with
+ @param {array} path The split jsdocPath of the element to work with
  @param {object} record The record to reach into
  @param {string} setter The set command, defaults to $set
  @param {object} newValue The value to write to the, or if the operator is $pull, the query of items to look for
@@ -552,7 +552,7 @@ var operations = {
 	/**
 	 * This is like $all except that it works with an array of objects or value. It checks to see the array matches all
 	 * of the conditions of the query
-	 * `{array: {$elemMatch: {path: value, path: {$operation: value2}}}`
+	 * `{array: {$elemMatch: {jsdocPath: value, jsdocPath: {$operation: value2}}}`
      * @name $elemMatch
 	 * @memberOf module:documents/probe.queryOperators
 	 * @example
@@ -907,10 +907,10 @@ exports.unique = function ( obj, qu ) {
 };
 
 /**
- This will write the value into a record at the path, creating intervening objects if they don't exist. This does not work as filtered
+ This will write the value into a record at the jsdocPath, creating intervening objects if they don't exist. This does not work as filtered
  update and is meant to be used on a single record. It is a nice way of setting a property at an arbitrary depth at will.
 
- @param {array} path The split path of the element to work with
+ @param {array} path The split jsdocPath of the element to work with
  @param {object} record The record to reach into
  @param {string} setter The set operation.  See {@link module:documents/probe.updateOperators} for the operators you can use.
  @param {object} newValue The value to write to the, or if the operator is $pull, the query of items to look for
@@ -923,7 +923,7 @@ exports.set = function ( record, path, setter, newValue ) {
  Reaches into an object and allows you to get at a value deeply nested in an object. This is not a query, but a
  straight reach in, useful for event bindings
 
- @param {array} path The split path of the element to work with
+ @param {array} path The split jsdocPath of the element to work with
  @param {object} record The record to reach into
  @return {*} Whatever was found in the record
  **/
