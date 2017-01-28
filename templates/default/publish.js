@@ -11,7 +11,6 @@ const jsdocLogger = require('jsdoc/util/logger');
 const jsdocPath = require('jsdoc/path');
 const jsdocTemplate = require('jsdoc/template');
 const taffy = require('taffydb').taffy;
-const util = require('util');
 
 let data;
 let outdir = jsdocPath.normalize(env.opts.destination);
