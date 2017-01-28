@@ -14,14 +14,13 @@ const taffy = require('taffydb').taffy;
 const util = require('util');
 
 let data;
-let view;
 let outdir = jsdocPath.normalize(env.opts.destination);
 
 function find(spec) {
   return jsdocTemplateHelper.find(data, spec);
 }
 
-function generate(type, title, docs, filename, resolveLinks) {
+function generate(view, type, title, docs, filename, resolveLinks) {
   resolveLinks = resolveLinks !== false;
 
   let docData = {
@@ -39,7 +38,7 @@ function generate(type, title, docs, filename, resolveLinks) {
   jsdocFS.writeFileSync(outpath, html, 'utf8');
 }
 
-function generateSourceFiles(sourceFiles, encoding) {
+function generateSourceFiles(view, sourceFiles, encoding) {
   encoding = encoding || 'utf8';
 
   Object.keys(sourceFiles).forEach(file => {
@@ -58,7 +57,7 @@ function generateSourceFiles(sourceFiles, encoding) {
       jsdocLogger.error('Error while generating source file %s: %s', file, e.message);
     }
 
-    generate('Source', sourceFiles[file].shortened, [source], sourceOutfile, false);
+    generate(view, 'Source', sourceFiles[file].shortened, [source], sourceOutfile, false);
   });
 }
 
@@ -214,7 +213,7 @@ exports.publish = (taffyData, opts, tutorials) => {
   conf.default = conf.default || {};
 
   let templatePath = jsdocPath.normalize(opts.template);
-  view = new jsdocTemplate.Template(jsdocPath.join(templatePath, 'tmpl'));
+  let view = new jsdocTemplate.Template(jsdocPath.join(templatePath, 'tmpl'));
 
   // claim some special filenames in advance, so the All-Powerful Overseer of Filename Uniqueness
   // doesn't try to hand them out later
@@ -387,18 +386,18 @@ exports.publish = (taffyData, opts, tutorials) => {
 
   // generate the pretty-printed source files first so other pages can link to them
   if (outputSourceFiles) {
-    generateSourceFiles(sourceFiles, opts.encoding);
+    generateSourceFiles(view, sourceFiles, opts.encoding);
   }
 
   if (members.globals.length) {
-    generate('', 'Global', [{kind: 'globalobj'}], globalUrl);
+    generate(view, '', 'Global', [{kind: 'globalobj'}], globalUrl);
   }
 
   // index page displays information from package.json and lists files
   let files = find({kind: 'file'});
   let packages = find({kind: 'package'});
 
-  generate('', 'Home', packages.concat([{
+  generate(view, '', 'Home', packages.concat([{
     kind: 'mainpage',
     readme: opts.readme,
     longname: (opts.mainpagetitle) ? opts.mainpagetitle : 'Main Page'
@@ -415,37 +414,37 @@ exports.publish = (taffyData, opts, tutorials) => {
   Object.keys(jsdocTemplateHelper.longnameToUrl).forEach(longname => {
     let myModules = jsdocTemplateHelper.find(modules, {longname: longname});
     if (myModules.length) {
-      generate('Module', myModules[0].name, myModules, jsdocTemplateHelper.longnameToUrl[longname]);
+      generate(view, 'Module', myModules[0].name, myModules, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
     let myClasses = jsdocTemplateHelper.find(classes, {longname: longname});
     if (myClasses.length) {
-      generate('Class', myClasses[0].name, myClasses, jsdocTemplateHelper.longnameToUrl[longname]);
+      generate(view, 'Class', myClasses[0].name, myClasses, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
     let myNamespaces = jsdocTemplateHelper.find(namespaces, {longname: longname});
     if (myNamespaces.length) {
-      generate('Namespace', myNamespaces[0].name, myNamespaces, jsdocTemplateHelper.longnameToUrl[longname]);
+      generate(view, 'Namespace', myNamespaces[0].name, myNamespaces, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
     let myMixins = jsdocTemplateHelper.find(mixins, {longname: longname});
     if (myMixins.length) {
-      generate('Mixin', myMixins[0].name, myMixins, jsdocTemplateHelper.longnameToUrl[longname]);
+      generate(view, 'Mixin', myMixins[0].name, myMixins, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
     let myExternals = jsdocTemplateHelper.find(externals, {longname: longname});
     if (myExternals.length) {
-      generate('External', myExternals[0].name, myExternals, jsdocTemplateHelper.longnameToUrl[longname]);
+      generate(view, 'External', myExternals[0].name, myExternals, jsdocTemplateHelper.longnameToUrl[longname]);
     }
 
     let myInterfaces = jsdocTemplateHelper.find(interfaces, {longname: longname});
     if (myInterfaces.length) {
-      generate('Interface', myInterfaces[0].name, myInterfaces, jsdocTemplateHelper.longnameToUrl[longname]);
+      generate(view, 'Interface', myInterfaces[0].name, myInterfaces, jsdocTemplateHelper.longnameToUrl[longname]);
     }
   });
 
   // TODO: move the tutorial functions to jsdocTemplateHelper.js
-  function generateTutorial(title, tutorial, filename) {
+  function generateTutorial(view, title, tutorial, filename) {
     let tutorialData = {
       title: title,
       header: tutorial.title,
@@ -462,12 +461,12 @@ exports.publish = (taffyData, opts, tutorials) => {
   }
 
   // tutorials can have only one parent so there is no risk for loops
-  function saveChildren(node) {
+  function saveChildren(view, node) {
     node.children.forEach(child => {
-      generateTutorial('Tutorial: ' + child.title, child, jsdocTemplateHelper.tutorialToUrl(child.name));
-      saveChildren(child);
+      generateTutorial(view, 'Tutorial: ' + child.title, child, jsdocTemplateHelper.tutorialToUrl(child.name));
+      saveChildren(view, child);
     });
   }
 
-  saveChildren(tutorials);
+  saveChildren(view, tutorials);
 };
