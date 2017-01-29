@@ -19,7 +19,7 @@ function find(spec) {
   return jsdocTemplateHelper.find(data, spec);
 }
 
-function generate(view, type, title, docs, filename, resolveLinks) {
+function generateFile(view, type, title, docs, filename, resolveLinks) {
   resolveLinks = resolveLinks !== false;
 
   let docData = {
@@ -56,7 +56,7 @@ function generateSourceFiles(view, sourceFiles, encoding) {
       jsdocLogger.error('Error while generating source file %s: %s', file, e.message);
     }
 
-    generate(view, 'Source', sourceFiles[file].shortened, [source], sourceOutfile, false);
+    generateFile(view, 'Source', sourceFiles[file].shortened, [source], sourceOutfile, false);
   });
 }
 
@@ -241,6 +241,7 @@ exports.publish = (taffyData, opts, tutorials) => {
 
     if (doclet.examples) {
       doclet.examples = doclet.examples.map(example => {
+        if (!example) return;
         let caption, code;
 
         if (example.match(/^\s*<caption>([\s\S]+?)<\/caption>(\s*[\n\r])([\s\S]+)$/i)) {
@@ -280,6 +281,87 @@ exports.publish = (taffyData, opts, tutorials) => {
   }
   jsdocFS.mkPath(outdir);
 
+  buildStaticFiles(conf, templatePath, outdir);
+  buildShortPaths(data, sourceFiles, sourceFilePaths);
+  buildSignatures(data);
+
+  let members = jsdocTemplateHelper.getMembers(data);
+  members.tutorials = tutorials.children;
+
+  // output pretty-printed source files by default
+  let outputSourceFiles = !!(conf.default && conf.default.outputSourceFiles !== false);
+
+  // add template helpers
+  view.find = find;
+  view.linkto = powerTemplateHelper.linkto;
+  view.resolveAuthorLinks = jsdocTemplateHelper.resolveAuthorLinks;
+  view.tutoriallink = powerTemplateHelper.tutoriallink;
+  view.htmlsafe = jsdocTemplateHelper.htmlsafe;
+  view.outputSourceFiles = outputSourceFiles;
+
+  // once for all
+  view.nav = buildNav(members);
+  attachModuleSymbols(find({longname: {left: 'module:'}}), members.modules);
+
+  // generate the pretty-printed source files first so other pages can link to them
+  if (outputSourceFiles) {
+    generateSourceFiles(view, sourceFiles, opts.encoding);
+  }
+
+  if (members.globals.length) {
+    generateFile(view, '', 'Global', [{kind: 'globalobj'}], globalUrl);
+  }
+
+  // index page displays information from package.json and lists files
+  let files = find({kind: 'file'});
+  let packages = find({kind: 'package'});
+
+  generateFile(view, '', 'Home', packages.concat([{
+    kind: 'mainpage',
+    readme: opts.readme,
+    longname: (opts.mainpagetitle) ? opts.mainpagetitle : 'Main Page'
+  }]).concat(files), indexUrl);
+
+  // generate the pages
+  Object.keys(jsdocTemplateHelper.longnameToUrl).forEach(longname => {
+    generatePages(view, 'Class', members.classes, longname);
+    generatePages(view, 'Module', members.modules, longname);
+    generatePages(view, 'Namespace', members.namespaces, longname);
+    generatePages(view, 'Mixin', members.mixins, longname);
+    generatePages(view, 'External', members.externals, longname);
+    generatePages(view, 'Interface', members.interfaces, longname);
+  });
+
+  // TODO: move the tutorial functions to jsdocTemplateHelper.js
+  function generateTutorial(view, title, tutorial, filename) {
+    let tutorialData = {
+      title: title,
+      header: tutorial.title,
+      content: tutorial.parse(),
+      children: tutorial.children
+    };
+
+    let tutorialPath = jsdocPath.join(outdir, filename);
+    let html = view.render('tutorial.tmpl', tutorialData);
+
+    // yes, you can use {@link} in tutorials too!
+    html = jsdocTemplateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
+    jsdocFS.writeFileSync(tutorialPath, html, 'utf8');
+  }
+
+  // tutorials can have only one parent so there is no risk for loops
+  function saveChildren(view, node) {
+    node.children.forEach(child => {
+      generateTutorial(view, 'Tutorial: ' + child.title, child, jsdocTemplateHelper.tutorialToUrl(child.name));
+      saveChildren(view, child);
+    });
+  }
+
+  saveChildren(view, tutorials);
+};
+
+function buildStaticFiles(conf, templatePath, outdir) {
+
   // copy the template's static files to outdir
   let fromDir = jsdocPath.join(templatePath, 'static');
   let staticFiles = jsdocFS.ls(fromDir, 3);
@@ -314,10 +396,14 @@ exports.publish = (taffyData, opts, tutorials) => {
       });
     });
   }
+}
+
+function buildShortPaths(data, sourceFiles, sourceFilePaths) {
 
   if (sourceFilePaths.length) {
     sourceFiles = powerTemplateHelper.shortenPaths(sourceFiles, jsdocPath.commonPrefix(sourceFilePaths));
   }
+
   data().each(doclet => {
     let url = jsdocTemplateHelper.createLink(doclet);
     jsdocTemplateHelper.registerLink(doclet.longname, url);
@@ -332,6 +418,9 @@ exports.publish = (taffyData, opts, tutorials) => {
       }
     }
   });
+}
+
+function buildSignatures(data) {
 
   data().each(doclet => {
     let url = jsdocTemplateHelper.longnameToUrl[doclet.longname];
@@ -364,108 +453,12 @@ exports.publish = (taffyData, opts, tutorials) => {
       doclet.kind = 'member';
     }
   });
+}
 
-  let members = jsdocTemplateHelper.getMembers(data);
-  members.tutorials = tutorials.children;
-
-  // output pretty-printed source files by default
-  let outputSourceFiles = !!(conf.default && conf.default.outputSourceFiles !== false);
-
-  // add template helpers
-  view.find = find;
-  view.linkto = powerTemplateHelper.linkto;
-  view.resolveAuthorLinks = jsdocTemplateHelper.resolveAuthorLinks;
-  view.tutoriallink = powerTemplateHelper.tutoriallink;
-  view.htmlsafe = jsdocTemplateHelper.htmlsafe;
-  view.outputSourceFiles = outputSourceFiles;
-
-  // once for all
-  view.nav = buildNav(members);
-  attachModuleSymbols(find({longname: {left: 'module:'}}), members.modules);
-
-  // generate the pretty-printed source files first so other pages can link to them
-  if (outputSourceFiles) {
-    generateSourceFiles(view, sourceFiles, opts.encoding);
+function generatePages(view, type, members, longname) {
+  let db = taffy(members);
+  let list = jsdocTemplateHelper.find(db, {longname: longname});
+  if (list.length) {
+    generateFile(view, type, list[0].name, list, jsdocTemplateHelper.longnameToUrl[longname]);
   }
-
-  if (members.globals.length) {
-    generate(view, '', 'Global', [{kind: 'globalobj'}], globalUrl);
-  }
-
-  // index page displays information from package.json and lists files
-  let files = find({kind: 'file'});
-  let packages = find({kind: 'package'});
-
-  generate(view, '', 'Home', packages.concat([{
-    kind: 'mainpage',
-    readme: opts.readme,
-    longname: (opts.mainpagetitle) ? opts.mainpagetitle : 'Main Page'
-  }]).concat(files), indexUrl);
-
-  // set up the lists that we'll use to generate pages
-  let classes = taffy(members.classes);
-  let modules = taffy(members.modules);
-  let namespaces = taffy(members.namespaces);
-  let mixins = taffy(members.mixins);
-  let externals = taffy(members.externals);
-  let interfaces = taffy(members.interfaces);
-
-  Object.keys(jsdocTemplateHelper.longnameToUrl).forEach(longname => {
-    let myModules = jsdocTemplateHelper.find(modules, {longname: longname});
-    if (myModules.length) {
-      generate(view, 'Module', myModules[0].name, myModules, jsdocTemplateHelper.longnameToUrl[longname]);
-    }
-
-    let myClasses = jsdocTemplateHelper.find(classes, {longname: longname});
-    if (myClasses.length) {
-      generate(view, 'Class', myClasses[0].name, myClasses, jsdocTemplateHelper.longnameToUrl[longname]);
-    }
-
-    let myNamespaces = jsdocTemplateHelper.find(namespaces, {longname: longname});
-    if (myNamespaces.length) {
-      generate(view, 'Namespace', myNamespaces[0].name, myNamespaces, jsdocTemplateHelper.longnameToUrl[longname]);
-    }
-
-    let myMixins = jsdocTemplateHelper.find(mixins, {longname: longname});
-    if (myMixins.length) {
-      generate(view, 'Mixin', myMixins[0].name, myMixins, jsdocTemplateHelper.longnameToUrl[longname]);
-    }
-
-    let myExternals = jsdocTemplateHelper.find(externals, {longname: longname});
-    if (myExternals.length) {
-      generate(view, 'External', myExternals[0].name, myExternals, jsdocTemplateHelper.longnameToUrl[longname]);
-    }
-
-    let myInterfaces = jsdocTemplateHelper.find(interfaces, {longname: longname});
-    if (myInterfaces.length) {
-      generate(view, 'Interface', myInterfaces[0].name, myInterfaces, jsdocTemplateHelper.longnameToUrl[longname]);
-    }
-  });
-
-  // TODO: move the tutorial functions to jsdocTemplateHelper.js
-  function generateTutorial(view, title, tutorial, filename) {
-    let tutorialData = {
-      title: title,
-      header: tutorial.title,
-      content: tutorial.parse(),
-      children: tutorial.children
-    };
-
-    let tutorialPath = jsdocPath.join(outdir, filename);
-    let html = view.render('tutorial.tmpl', tutorialData);
-
-    // yes, you can use {@link} in tutorials too!
-    html = jsdocTemplateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
-    jsdocFS.writeFileSync(tutorialPath, html, 'utf8');
-  }
-
-  // tutorials can have only one parent so there is no risk for loops
-  function saveChildren(view, node) {
-    node.children.forEach(child => {
-      generateTutorial(view, 'Tutorial: ' + child.title, child, jsdocTemplateHelper.tutorialToUrl(child.name));
-      saveChildren(view, child);
-    });
-  }
-
-  saveChildren(view, tutorials);
-};
+}
