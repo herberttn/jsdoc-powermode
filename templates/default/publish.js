@@ -15,6 +15,100 @@ const taffy = require('taffydb').taffy;
 let data;
 let outdir = jsdocPath.normalize(env.opts.destination);
 
+/**
+ @param {taffy} taffyData See <http://taffydb.com/>.
+ @param {object} opts
+ @param {Tutorial} tutorials
+ */
+exports.publish = (taffyData, opts, tutorials) => {
+
+  data = taffyData;
+
+  let conf = env.conf.templates || {};
+  conf.default = conf.default || {};
+
+  let templatePath = jsdocPath.normalize(opts.template);
+  let view = new jsdocTemplate.Template(jsdocPath.join(templatePath, 'tmpl'));
+
+  // claim some special filenames in advance, so the All-Powerful Overseer of Filename Uniqueness
+  // doesn't try to hand them out later
+  let indexUrl = jsdocTemplateHelper.getUniqueFilename('index');
+  // don't call registerLink() on this one! 'index' is also a valid longname
+
+  let globalUrl = jsdocTemplateHelper.getUniqueFilename('global');
+  jsdocTemplateHelper.registerLink('global', globalUrl);
+
+  // set up templating
+  view.layout = conf.default.layoutFile
+    ? jsdocPath.getResourcePath(jsdocPath.dirname(conf.default.layoutFile), jsdocPath.basename(conf.default.layoutFile))
+    : 'layout.tmpl';
+
+  // set up tutorials for jsdocTemplateHelper
+  jsdocTemplateHelper.setTutorials(tutorials);
+  data = jsdocTemplateHelper.prune(data);
+
+  powerConfiguratorHelper.shouldSort() && data.sort('longname, version, since');
+  jsdocTemplateHelper.addEventListeners(data);
+
+  let sourceFiles = {};
+  let sourceFilePaths = [];
+
+  buildSourceFileLists(data, sourceFiles, sourceFilePaths);
+  buildOutputDirectory();
+  buildStaticFiles(conf, templatePath, outdir);
+  buildShortPaths(data, sourceFiles, sourceFilePaths);
+  buildSignatures(data);
+
+  let members = jsdocTemplateHelper.getMembers(data);
+  members.tutorials = tutorials.children;
+
+  // output pretty-printed source files by default
+  let outputSourceFiles = !!(conf.default && conf.default.outputSourceFiles !== false);
+
+  // add template helpers
+  view.find = find;
+  view.linkto = powerTemplateHelper.linkto;
+  view.resolveAuthorLinks = jsdocTemplateHelper.resolveAuthorLinks;
+  view.tutoriallink = powerTemplateHelper.tutoriallink;
+  view.htmlsafe = jsdocTemplateHelper.htmlsafe;
+  view.outputSourceFiles = outputSourceFiles;
+
+  // once for all
+  view.nav = buildNav(members);
+  attachModuleSymbols(find({longname: {left: 'module:'}}), members.modules);
+
+  // generate the pretty-printed source files first so other pages can link to them
+  if (outputSourceFiles) {
+    generateSourceFiles(view, sourceFiles, opts.encoding);
+  }
+
+  if (members.globals.length) {
+    generateFile(view, '', 'Global', [{kind: 'globalobj'}], globalUrl);
+  }
+
+  // index page displays information from package.json and lists files
+  let files = find({kind: 'file'});
+  let packages = find({kind: 'package'});
+
+  generateFile(view, '', 'Home', packages.concat([{
+    kind: 'mainpage',
+    readme: opts.readme,
+    longname: (opts.mainpagetitle) ? opts.mainpagetitle : 'Main Page'
+  }]).concat(files), indexUrl);
+
+  // generate the pages
+  Object.keys(jsdocTemplateHelper.longnameToUrl).forEach(longname => {
+    generatePages(view, 'Class', members.classes, longname);
+    generatePages(view, 'Module', members.modules, longname);
+    generatePages(view, 'Namespace', members.namespaces, longname);
+    generatePages(view, 'Mixin', members.mixins, longname);
+    generatePages(view, 'External', members.externals, longname);
+    generatePages(view, 'Interface', members.interfaces, longname);
+  });
+
+  saveChildren(view, tutorials);
+};
+
 function find(spec) {
   return jsdocTemplateHelper.find(data, spec);
 }
@@ -153,15 +247,6 @@ function buildMemberNav(items, itemHeading, itemsSeen, linktoFn) {
 /**
  * Create the navigation sidebar.
  * @param {object} members The members that will be used to create the sidebar.
- * @param {array<object>} members.classes
- * @param {array<object>} members.externals
- * @param {array<object>} members.globals
- * @param {array<object>} members.mixins
- * @param {array<object>} members.modules
- * @param {array<object>} members.namespaces
- * @param {array<object>} members.tutorials
- * @param {array<object>} members.events
- * @param {array<object>} members.interfaces
  * @return {string} The HTML for the navigation sidebar.
  */
 function buildNav(members) {
@@ -199,166 +284,30 @@ function buildNav(members) {
   return nav;
 }
 
-/**
- @param {TAFFY} taffyData See <http://taffydb.com/>.
- @param {object} opts
- @param {Tutorial} tutorials
- */
-exports.publish = (taffyData, opts, tutorials) => {
-
-  data = taffyData;
-
-  let conf = env.conf.templates || {};
-  conf.default = conf.default || {};
-
-  let templatePath = jsdocPath.normalize(opts.template);
-  let view = new jsdocTemplate.Template(jsdocPath.join(templatePath, 'tmpl'));
-
-  // claim some special filenames in advance, so the All-Powerful Overseer of Filename Uniqueness
-  // doesn't try to hand them out later
-  let indexUrl = jsdocTemplateHelper.getUniqueFilename('index');
-  // don't call registerLink() on this one! 'index' is also a valid longname
-
-  let globalUrl = jsdocTemplateHelper.getUniqueFilename('global');
-  jsdocTemplateHelper.registerLink('global', globalUrl);
-
-  // set up templating
-  view.layout = conf.default.layoutFile
-    ? jsdocPath.getResourcePath(jsdocPath.dirname(conf.default.layoutFile), jsdocPath.basename(conf.default.layoutFile))
-    : 'layout.tmpl';
-
-  // set up tutorials for jsdocTemplateHelper
-  jsdocTemplateHelper.setTutorials(tutorials);
-  data = jsdocTemplateHelper.prune(data);
-
-  powerConfiguratorHelper.shouldSort() && data.sort('longname, version, since');
-  jsdocTemplateHelper.addEventListeners(data);
-
-  let sourceFiles = {};
-  let sourceFilePaths = [];
-  data().each(doclet => {
-    doclet.attribs = '';
-
-    if (doclet.examples) {
-      doclet.examples = doclet.examples.map(example => {
-        if (!example) return;
-        let caption, code;
-
-        if (example.match(/^\s*<caption>([\s\S]+?)<\/caption>(\s*[\n\r])([\s\S]+)$/i)) {
-          caption = RegExp.$1;
-          code = RegExp.$3;
-        }
-
-        return {
-          caption: caption || '',
-          code: code || example
-        };
-      });
-    }
-
-    if (doclet.see) {
-      doclet.see.forEach((seeItem, i) => doclet.see[i] = powerTemplateHelper.hashToLink(doclet, seeItem));
-    }
-
-    // build a list of source files
-    let sourcePath;
-    if (doclet.meta) {
-      sourcePath = powerTemplateHelper.getPathFromDoclet(doclet);
-      sourceFiles[sourcePath] = {
-        resolved: sourcePath,
-        shortened: null
-      };
-      if (sourceFilePaths.indexOf(sourcePath) === -1) {
-        sourceFilePaths.push(sourcePath);
-      }
-    }
+// tutorials can have only one parent so there is no risk for loops
+function saveChildren(view, node) {
+  node.children.forEach(child => {
+    generateTutorial(view, 'Tutorial: ' + child.title, child, jsdocTemplateHelper.tutorialToUrl(child.name));
+    saveChildren(view, child);
   });
+}
 
-  // update outdir if necessary, then create outdir
-  let packageInfo = (find({kind: 'package'}) || [])[0];
-  if (packageInfo && packageInfo.name) {
-    outdir = jsdocPath.join(outdir, packageInfo.name, (packageInfo.version || ''));
-  }
-  jsdocFS.mkPath(outdir);
+// TODO: move the tutorial functions to jsdocTemplateHelper.js
+function generateTutorial(view, title, tutorial, filename) {
+  let tutorialData = {
+    title: title,
+    header: tutorial.title,
+    content: tutorial.parse(),
+    children: tutorial.children
+  };
 
-  buildStaticFiles(conf, templatePath, outdir);
-  buildShortPaths(data, sourceFiles, sourceFilePaths);
-  buildSignatures(data);
+  let tutorialPath = jsdocPath.join(outdir, filename);
+  let html = view.render('tutorial.tmpl', tutorialData);
 
-  let members = jsdocTemplateHelper.getMembers(data);
-  members.tutorials = tutorials.children;
-
-  // output pretty-printed source files by default
-  let outputSourceFiles = !!(conf.default && conf.default.outputSourceFiles !== false);
-
-  // add template helpers
-  view.find = find;
-  view.linkto = powerTemplateHelper.linkto;
-  view.resolveAuthorLinks = jsdocTemplateHelper.resolveAuthorLinks;
-  view.tutoriallink = powerTemplateHelper.tutoriallink;
-  view.htmlsafe = jsdocTemplateHelper.htmlsafe;
-  view.outputSourceFiles = outputSourceFiles;
-
-  // once for all
-  view.nav = buildNav(members);
-  attachModuleSymbols(find({longname: {left: 'module:'}}), members.modules);
-
-  // generate the pretty-printed source files first so other pages can link to them
-  if (outputSourceFiles) {
-    generateSourceFiles(view, sourceFiles, opts.encoding);
-  }
-
-  if (members.globals.length) {
-    generateFile(view, '', 'Global', [{kind: 'globalobj'}], globalUrl);
-  }
-
-  // index page displays information from package.json and lists files
-  let files = find({kind: 'file'});
-  let packages = find({kind: 'package'});
-
-  generateFile(view, '', 'Home', packages.concat([{
-    kind: 'mainpage',
-    readme: opts.readme,
-    longname: (opts.mainpagetitle) ? opts.mainpagetitle : 'Main Page'
-  }]).concat(files), indexUrl);
-
-  // generate the pages
-  Object.keys(jsdocTemplateHelper.longnameToUrl).forEach(longname => {
-    generatePages(view, 'Class', members.classes, longname);
-    generatePages(view, 'Module', members.modules, longname);
-    generatePages(view, 'Namespace', members.namespaces, longname);
-    generatePages(view, 'Mixin', members.mixins, longname);
-    generatePages(view, 'External', members.externals, longname);
-    generatePages(view, 'Interface', members.interfaces, longname);
-  });
-
-  // TODO: move the tutorial functions to jsdocTemplateHelper.js
-  function generateTutorial(view, title, tutorial, filename) {
-    let tutorialData = {
-      title: title,
-      header: tutorial.title,
-      content: tutorial.parse(),
-      children: tutorial.children
-    };
-
-    let tutorialPath = jsdocPath.join(outdir, filename);
-    let html = view.render('tutorial.tmpl', tutorialData);
-
-    // yes, you can use {@link} in tutorials too!
-    html = jsdocTemplateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
-    jsdocFS.writeFileSync(tutorialPath, html, 'utf8');
-  }
-
-  // tutorials can have only one parent so there is no risk for loops
-  function saveChildren(view, node) {
-    node.children.forEach(child => {
-      generateTutorial(view, 'Tutorial: ' + child.title, child, jsdocTemplateHelper.tutorialToUrl(child.name));
-      saveChildren(view, child);
-    });
-  }
-
-  saveChildren(view, tutorials);
-};
+  // yes, you can use {@link} in tutorials too!
+  html = jsdocTemplateHelper.resolveLinks(html); // turn {@link foo} into <a href="foodoc.html">foo</a>
+  jsdocFS.writeFileSync(tutorialPath, html, 'utf8');
+}
 
 function buildStaticFiles(conf, templatePath, outdir) {
 
@@ -461,4 +410,54 @@ function generatePages(view, type, members, longname) {
   if (list.length) {
     generateFile(view, type, list[0].name, list, jsdocTemplateHelper.longnameToUrl[longname]);
   }
+}
+
+function buildOutputDirectory() {
+  // update outdir if necessary, then create outdir
+  let packageInfo = (find({kind: 'package'}) || [])[0];
+  if (packageInfo && packageInfo.name) {
+    outdir = jsdocPath.join(outdir, packageInfo.name, (packageInfo.version || ''));
+  }
+  jsdocFS.mkPath(outdir);
+}
+
+function buildSourceFileLists(data, sourceFiles, sourceFilePaths) {
+
+  data().each(doclet => {
+    doclet.attribs = '';
+
+    if (doclet.examples) {
+      doclet.examples = doclet.examples.map(example => {
+        if (!example) return;
+        let caption, code;
+
+        if (example.match(/^\s*<caption>([\s\S]+?)<\/caption>(\s*[\n\r])([\s\S]+)$/i)) {
+          caption = RegExp.$1;
+          code = RegExp.$3;
+        }
+
+        return {
+          caption: caption || '',
+          code: code || example
+        };
+      });
+    }
+
+    if (doclet.see) {
+      doclet.see.forEach((seeItem, i) => doclet.see[i] = powerTemplateHelper.hashToLink(doclet, seeItem));
+    }
+
+    // build a list of source files
+    let sourcePath;
+    if (doclet.meta) {
+      sourcePath = powerTemplateHelper.getPathFromDoclet(doclet);
+      sourceFiles[sourcePath] = {
+        resolved: sourcePath,
+        shortened: null
+      };
+      if (sourceFilePaths.indexOf(sourcePath) === -1) {
+        sourceFilePaths.push(sourcePath);
+      }
+    }
+  });
 }
