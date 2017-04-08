@@ -20,7 +20,7 @@
   },
   "homepage": "https://github.com/herberttn/jsdoc-powermode#readme",
   "dependencies": {
-    "jsdoc": "latest",
+    "jsdoc": "https://github.com/herberttn/jsdoc.git",
     "lodash": "latest"
   },
   "devDependencies": {
